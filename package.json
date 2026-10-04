@@ -1,0 +1,22 @@
+{
+  "name": "hanshuang-mac",
+  "version": "4.4.0",
+  "private": true,
+  "description": "寒霜破甲工具 · macOS 桌面版",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:x64": "node scripts/build.mjs --arch=x64",
+    "build:arm64": "node scripts/build.mjs --arch=arm64",
+    "build:offline": "node scripts/build.mjs --skip-download",
+    "test": "HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs"
+  },
+  "devDependencies": {
+    "@electron/asar": "^3.4.1",
+    "electron": "33.4.11"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

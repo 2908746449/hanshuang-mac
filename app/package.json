@@ -1,0 +1,12 @@
+{
+  "name": "hanshuang-free",
+  "version": "4.4.0",
+  "private": true,
+  "description": "寒霜破甲工具 · 桌面版",
+  "main": "electron/main.cjs",
+  "dependencies": {
+    "lucide-react": "^1.45.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

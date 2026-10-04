@@ -1,0 +1,12 @@
+# 构建产物（由 scripts/build.mjs 生成）
+/dist/
+/build/
+/vendor/
+
+# 依赖
+node_modules/
+
+# 测试/备份临时物
+/backup-*/
+*.log
+.DS_Store
