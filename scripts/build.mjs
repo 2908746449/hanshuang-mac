@@ -254,7 +254,9 @@ function assemble(appAsar, icns) {
 
   // 9) 落到 dist/
   needDir(DIST);
-  const finalApp = path.join(DIST, `${APP_NAME}.app`);
+  // 产物按架构命名。之前固定叫 <AppName>.app，连续构建 arm64/x64 会互相覆盖 ——
+  // 实测构建 x64 时把刚做好的 arm64 产物整个盖掉了。
+  const finalApp = path.join(DIST, `${APP_NAME}-${ARCH}.app`);
   fs.rmSync(finalApp, { recursive: true, force: true });
   /*
     必须用 ditto，不能用 fs.cpSync。
@@ -283,4 +285,5 @@ const icns = buildIcon();
 const asar = await buildAsar();
 const out = assemble(asar, icns);
 log("构建完成:", out);
+log(`提示：产物按架构命名（${APP_NAME}-${ARCH}.app），arm64 与 x64 可共存于 dist/`);
 log(`体积: ${(Number(run("du", ["-sk", out]).split(/\s+/)[0]) / 1024).toFixed(0)} MB`);

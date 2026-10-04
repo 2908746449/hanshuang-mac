@@ -16,6 +16,16 @@ Electron 桌面壳 + 随包 PowerShell 运行时 + 已移植的注入脚本，�
 | DeepSeek Harness (DSH) | `~/.dsh/AGENTS.md` + `~/.dsh/skills` | ✅ |
 | 豆包 (Doubao) | 走 CDP 驱动客户端改**云端**全局记忆 | ⚠️ 见下 |
 
+## 下载
+
+已发布的二进制在 **Releases** 里（GitHub 普通仓库单文件限 100MB，`.app` 与 zip 都超限，
+所以走 Release 资产而不是直接 commit）：
+
+| 文件 | 适用机型 |
+|---|---|
+| `寒霜破甲工具-macOS-arm64-1.2.zip` | Apple Silicon（M1/M2/M3/M4） |
+| `寒霜破甲工具-macOS-x64-1.2.zip` | Intel Mac |
+
 ## 构建
 
 ```bash
@@ -25,7 +35,7 @@ npm run build:arm64      # Apple Silicon
 npm run build:x64        # Intel
 ```
 
-产物：`dist/寒霜破甲工具.app`
+产物：`dist/寒霜破甲工具-<arch>.app`（按架构命名，arm64 与 x64 可共存于 `dist/`）
 
 首次构建会自动下载两个依赖到 `vendor/`（已下载过则跳过）：
 
@@ -38,14 +48,14 @@ npm run build:x64        # Intel
 ## 运行
 
 ```bash
-open "dist/寒霜破甲工具.app"
+open "dist/寒霜破甲工具-arm64.app"
 ```
 
 首次打开若被 Gatekeeper 拦下（构建用的是 ad-hoc 签名）：
 
 ```bash
-xattr -cr "dist/寒霜破甲工具.app"
-open "dist/寒霜破甲工具.app"
+xattr -cr "dist/寒霜破甲工具-arm64.app"
+open "dist/寒霜破甲工具-arm64.app"
 ```
 
 ## 目录结构
@@ -99,11 +109,13 @@ assets/icon.png|icns       图标
 
 ## 实测验证
 
-在 macOS 26.5.1 / arm64 上跑通（`ipc-test.mjs`，把 electron 换成桩模块后 require
-真实 `app.asar` 里的 `main.cjs`，抓出它注册的 IPC handler 按界面路径逐个跑）：
+在 macOS 26.5.1 上跑通（`tests/ipc-test.mjs`，把 electron 换成桩模块后 require
+真实 `app.asar` 里的 `main.cjs`，抓出它注册的 IPC handler 按界面路径逐个跑）。
+**arm64 与 x64 两个构建各自 22/22 通过**：
 
 ```
-$ HOME=/tmp/hs-ipc-home node ipc-test.mjs
+$ HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
+# 指定架构：HS_TEST_ARCH=x64 HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
 ✅ IPC tool:state
 ✅ tool:install / tool:uninstall / tool:restoreMemory   codex zcode cursor claude workbuddy-cn dsh  各 3 项
 ✅ 兜底清扫已清掉 MEMORY.md 注入

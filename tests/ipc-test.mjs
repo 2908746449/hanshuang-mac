@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const APP = path.join(HERE, "..", "dist", "寒霜破甲工具.app");
+// 产物按架构命名；用 HS_TEST_ARCH 指定，默认取当前机器架构
+const TEST_ARCH = process.env.HS_TEST_ARCH || (process.arch === "arm64" ? "arm64" : "x64");
+const APP = path.join(HERE, "..", "dist", `寒霜破甲工具-${TEST_ARCH}.app`);
 const RES = path.join(APP, "Contents/Resources");
 const HOME = process.env.HOME;
 
