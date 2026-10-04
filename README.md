@@ -23,8 +23,8 @@ Electron 桌面壳 + 随包 PowerShell 运行时 + 已移植的注入脚本，�
 
 | 文件 | 适用机型 |
 |---|---|
-| `寒霜破甲工具-macOS-arm64-1.2.zip` | Apple Silicon（M1/M2/M3/M4） |
-| `寒霜破甲工具-macOS-x64-1.2.zip` | Intel Mac |
+| `hanshuang-macos-arm64-1.2.zip` | Apple Silicon（M1/M2/M3/M4） |
+| `hanshuang-macos-x64-1.2.zip` | Intel Mac |
 
 ## 构建
 
