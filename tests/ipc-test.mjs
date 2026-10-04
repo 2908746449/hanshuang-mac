@@ -31,8 +31,24 @@ if (!HOME || HOME === process.env.REAL_HOME || HOME.startsWith("/Users/") && !HO
 console.log("隔离 HOME:", HOME);
 
 // ---- 从 app.asar 里取 main.cjs（Electron 的真实加载方式）----
-const reqWs = createRequire("/Users/wsh/.workbuddy/binaries/node/workspace/index.js");
-const asarLib = reqWs("@electron/asar");
+// 解析 @electron/asar：优先仓库自身的 node_modules（npm install 后就有），
+// 退回 NODE_PATH 指定的目录。不要写死绝对路径 —— 换台机器就废。
+function loadAsar() {
+  const roots = [path.join(HERE, "..", "package.json")];
+  for (const d of (process.env.NODE_PATH || "").split(path.delimiter).filter(Boolean)) {
+    roots.push(path.join(d, "index.js"));
+  }
+  for (const r of roots) {
+    try {
+      return createRequire(r)("@electron/asar");
+    } catch {
+      /* 试下一个 */
+    }
+  }
+  console.error("找不到 @electron/asar。先在仓库根目录跑 npm install。");
+  process.exit(2);
+}
+const asarLib = loadAsar();
 const mainSrc = asarLib.extractFile(path.join(RES, "app.asar"), "electron/main.cjs").toString("utf8");
 const tmp = path.join(HOME, "main-under-test.cjs");
 fs.mkdirSync(HOME, { recursive: true });
