@@ -256,7 +256,24 @@ function assemble(appAsar, icns) {
   needDir(DIST);
   const finalApp = path.join(DIST, `${APP_NAME}.app`);
   fs.rmSync(finalApp, { recursive: true, force: true });
-  fs.cpSync(app, finalApp, { recursive: true, preserveSymlinks: false });
+  /*
+    必须用 ditto，不能用 fs.cpSync。
+    macOS 的 .framework 里有一套标准相对符号链接（Foo.framework/Foo -> Versions/Current/Foo、
+    Versions/Current -> A 等）。fs.cpSync 默认 verbatimSymlinks=false，会把相对链接
+    「解析成绝对路径」—— 链接就指向了 build/stage-<arch>/…，一旦删掉 build/ 整个 app 就废；
+    而且绝对链接指向 bundle 外，codesign 会报
+    "unsealed contents present in the root directory of an embedded framework"。
+    ditto 按原样保留符号链接，是 Apple 自己的拷贝工具。
+  */
+  const d = spawnSync("ditto", [app, finalApp], { encoding: "utf8" });
+  if (d.status !== 0) throw new Error("ditto 拷贝失败: " + (d.stderr || ""));
+  // 复核：不允许有任何符号链接指向构建暂存目录
+  const links = spawnSync("bash", [
+    "-c",
+    `find ${JSON.stringify(finalApp)} -type l -exec sh -c 'printf "%s -> %s\\n" "$1" "$(readlink "$1")"' _ {} \\; 2>/dev/null | grep -c "build/stage" || true`,
+  ], { encoding: "utf8" });
+  const bad = Number((links.stdout || "0").trim());
+  if (bad > 0) throw new Error(`产物里有 ${bad} 个符号链接指向构建暂存目录，ditto 未生效`);
   return finalApp;
 }
 
