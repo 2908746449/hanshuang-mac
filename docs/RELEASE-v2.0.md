@@ -48,6 +48,10 @@ npm run test:opencode   # OpenCode 专用端到端，22 项断言全通过
 
 > 只发布 Apple Silicon 构建，Intel 版不再分发。
 
+解压得到 `寒霜破甲工具 2.0.app`，拖进 `/Applications` 即可，**能和旧版（`寒霜破甲工具.app`）共存、同时打开**：
+Bundle ID 已改成 `com.hanshuang.pojia.desktop.v2`，应用数据落在 `~/Library/Application Support/寒霜破甲工具 2.0`，
+和旧版的 `hanshuang-free` 互不相干，双击哪个开哪个。
+
 未做代码签名（ad-hoc），首次打开若被拦：
 
 ```bash
