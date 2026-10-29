@@ -26,7 +26,9 @@ check(){ if eval "$2"; then ok "$1"; else bad "$1  ($2)"; fi; }
 
 PS() { "$PWSH" -NoProfile -File "$@" 2>&1; }
 
-echo "== 0. 造一份「用户自己的」AGENTS.md + 一个同名用户技能"
+echo "== 0. 造一份「用户自己的」AGENTS.md + opencode.json + 一个同名用户技能"
+printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "model": "clinepin/test-model",\n  "permission": "allow"\n}\n' > "$CFG/opencode.json"
+cp "$CFG/opencode.json" "$WORK/original.json"
 printf '# 我的 OpenCode 全局规则\n\n- 用中文回答\n- 不要动我的 dotfiles\n' > "$CFG/AGENTS.md"
 cp "$CFG/AGENTS.md" "$WORK/original.md"
 mkdir -p "$CFG/skills/pwn-chain"
@@ -47,6 +49,13 @@ check "用户同名技能被备份而不是覆盖" "ls -d '$CFG/skills/pwn-chain
 BAK_PC=$(ls -d "$CFG/skills/pwn-chain.bak-"* 2>/dev/null | head -1)
 check "用户同名技能被原样备份" "[ -n '$BAK_PC' ] && cmp -s '$WORK/user-skill.md' '$BAK_PC/SKILL.md'"
 check "技能位上是随包版本" "cmp -s '$HERE/resources/codex-skills-v4/pwn-chain/SKILL.md' '$CFG/skills/pwn-chain/SKILL.md'"
+# 系统层（真正让模型不拒绝的那层）：agent/<名>.md 正文 = 内核，default_agent 指过去
+check "系统层 agent 文件已写入" "[ -f '$CFG/agent/hanshuang.md' ]"
+check "agent 正文带注入标记" "grep -q 'HANSHUANG-INJECT:BEGIN kernel=opencode-kernel.md' '$CFG/agent/hanshuang.md'"
+check "agent 是 primary 模式" "grep -q '^mode: primary' '$CFG/agent/hanshuang.md'"
+check "内核含唯一禁止项（中转站保护）" "grep -q 'api.zxcbug.com' '$CFG/agent/hanshuang.md'"
+check "default_agent 指向 hanshuang" "python3 -c \"import json,sys; d=json.load(open('$CFG/opencode.json')); sys.exit(0 if d.get('default_agent')=='hanshuang' else 1)\""
+check "改配置前留了备份" "[ -f '$CFG/managed-prompts/opencode.json.bak' ]"
 
 echo "== 2. 重复安装（幂等：只换块内内容，不再追加）"
 BLOCKS_BEFORE=$(grep -c 'HANSHUANG-INJECT:BEGIN' "$CFG/AGENTS.md")
@@ -70,6 +79,11 @@ check "用户同名技能已搬回且内容未变" "cmp -s '$WORK/user-skill.md'
 check "没有残留 .bak- 目录" "! ls -d '$CFG/skills/'*.bak-* >/dev/null 2>&1"
 check "managed-prompts 已清空并删除" "[ ! -d '$CFG/managed-prompts' ]"
 check "install-state.json 已删除" "[ ! -f '$CFG/managed-prompts/install-state.json' ]"
+check "系统层 agent 已删除" "[ ! -f '$CFG/agent/hanshuang.md' ]"
+check "agent 空目录已回收" "[ ! -d '$CFG/agent' ]"
+check "opencode.json 里不留 default_agent（原本没有这个键）" "! grep -q 'default_agent' '$CFG/opencode.json'"
+check "opencode.json 内容未被改坏" "python3 -c \"import json; json.load(open('$CFG/opencode.json'))\""
+check "opencode.json 逐字节还原" "cmp -s '$WORK/original.json' '$CFG/opencode.json'"
 
 echo "== 5. 清理脚本认得 opencode"
 rm -rf "$CFG/skills"
@@ -78,6 +92,8 @@ PS "$HERE/resources/scripts/clear-injected-prompts.ps1" -Targets opencode >"$WOR
 check "dry-run 能列出 opencode 的注入项" "grep -q 'AGENTS.md' '$WORK/clear-dry.log'"
 PS "$HERE/resources/scripts/clear-injected-prompts.ps1" -Apply -Targets opencode >"$WORK/clear.log"
 check "-Apply 后 AGENTS.md 还原" "cmp -s '$WORK/original.md' '$CFG/AGENTS.md'"
+check "清理脚本删掉了系统层 agent" "[ ! -f '$CFG/agent/hanshuang.md' ]"
+check "清理脚本没留下 default_agent" "! grep -q 'default_agent' '$CFG/opencode.json'"
 
 echo
 if [ "$fails" -eq 0 ]; then

@@ -6,6 +6,11 @@ param(
     [string]$SkillsSource,
     # 分号分隔的其他提示词绝对路径：AGENTS.md 正文与之相同 = 之前贴的就是提示词，可直接整份改写
     [string]$KnownPrompts,
+    # 系统层载荷的 agent 名：正文写进 <ConfigDir>/agent/<AgentName>.md，
+    # OpenCode 用该文件正文当这个 agent 的 system prompt（内置模板不再注入）。
+    [string]$AgentName = 'hanshuang',
+    # 不去动 opencode.json 的 default_agent（默认会改，让内核开箱即生效）
+    [switch]$NoDefaultAgent,
     [switch]$Uninstall,
     # 只把注入的内容还原成原版（AGENTS.md 摘块），技能库与 install-state.json 一概不动。
     # 界面上的「装回原始记忆」按钮走这条路径。
@@ -118,6 +123,98 @@ $agentsMd = Join-Path $ConfigDir 'AGENTS.md'
 $managedDir = Join-Path $ConfigDir 'managed-prompts'
 $backupPath = Join-Path $managedDir 'AGENTS.md.bak'
 $markerEnd = '<!-- HANSHUANG-INJECT:END -->'
+$kernelBegin = '<!-- HANSHUANG-INJECT:BEGIN kernel=opencode-kernel.md -->'
+$kernelPath = Join-Path $PSScriptRoot 'opencode-kernel.md'
+$agentDir = Join-Path $ConfigDir 'agent'
+$agentFile = Join-Path $agentDir ($AgentName + '.md')
+# 配置文件：优先 .json，其次 .jsonc；都不存在时按 .json 新建
+$configFile = $null
+foreach ($n in @('opencode.json', 'opencode.jsonc')) {
+    $cand = Join-Path $ConfigDir $n
+    if (Test-Path -LiteralPath $cand) { $configFile = $cand; break }
+}
+if (-not $configFile) { $configFile = Join-Path $ConfigDir 'opencode.json' }
+$configBackup = Join-Path $managedDir ((Split-Path -Leaf $configFile) + '.bak')
+
+# 系统层载荷：agent/<名>.md 的正文 = 这个 agent 的 system prompt。
+# 之所以要多这一层：AGENTS.md 在 opencode 里被模型归类成「本机偏好」，会被点名驳回；
+# 系统层才被当硬性规定执行（实测对比见 docs/RESEARCH-opencode.md）。
+function Write-AgentKernel {
+    if (-not (Test-Path -LiteralPath $kernelPath)) { return $false }
+    $kernel = (Read-Utf8 $kernelPath).TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($kernel)) { return $false }
+    New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
+    $front = @(
+        '---',
+        'description: 寒霜执行内核（HANSHUANG）· 首字节交付 / 无替代方案',
+        'mode: primary',
+        'color: "#E11D48"',
+        '---',
+        ''
+    ) -join [Environment]::NewLine
+    $body = $kernelBegin + [Environment]::NewLine + $kernel + [Environment]::NewLine + $markerEnd
+    Write-Utf8NoBom $agentFile ($front + $body + [Environment]::NewLine)
+    return $true
+}
+
+# 把 default_agent 指到我们的 agent。改前整份备份，改完解析校验，解析不过就回滚 ——
+# 用户那份 opencode.json 是命根子（40 KB 的 provider 配置），不能改坏。
+function Set-DefaultAgent([string]$Name) {
+    $result = @{ Prev = $null; Wrote = $false }
+    $text = ''
+    if (Test-Path -LiteralPath $configFile) { $text = Read-Utf8 $configFile }
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        $newText = "{`n  `"`$schema`": `"https://opencode.ai/config.json`",`n  `"default_agent`": `"$Name`"`n}`n"
+        if (Test-ConfigJson -Text $newText) {
+            Write-Utf8NoBom $configFile $newText
+            $result.Wrote = $true
+        }
+        return $result
+    }
+    $m = [regex]::Match($text, '"default_agent"\s*:\s*"([^"]*)"')
+    if ($m.Success) {
+        if ($m.Groups[1].Value -eq $Name) { $result.Prev = $Name; return $result }
+        $newText = $text.Substring(0, $m.Groups[1].Index) + $Name + $text.Substring($m.Groups[1].Index + $m.Groups[1].Length)
+        $result.Prev = $m.Groups[1].Value
+    } else {
+        $i = $text.IndexOf('{')
+        if ($i -lt 0) { return $result }
+        $newText = $text.Substring(0, $i + 1) + [Environment]::NewLine + '  "default_agent": "' + $Name + '",' + $text.Substring($i + 1)
+        $result.Prev = $null
+    }
+    if (Test-ConfigJson -Text $newText) {
+        Write-Utf8NoBom $configFile $newText
+        $result.Wrote = $true
+    } else {
+        Write-Host "skip default_agent: edited config is not valid JSON, left as is"
+    }
+    return $result
+}
+
+# 还原 default_agent：原来有值就写回原值，原来没有这个键就把我们插进去的那行删掉。
+function Restore-DefaultAgent([string]$Path, [string]$Prev, [string]$OurName) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $text = Read-Utf8 $Path
+    if ([string]::IsNullOrWhiteSpace($text)) { return }
+    if ([string]::IsNullOrEmpty($Prev)) {
+        $newText = [regex]::Replace($text, '\s*"default_agent"\s*:\s*"' + [regex]::Escape($OurName) + '"\s*,?', '')
+        # 删键后可能留下 ",}" 这种残缺，收一下
+        $newText = $newText -replace ',(\s*})', '$1'
+    } else {
+        $newText = [regex]::Replace($text, '("default_agent"\s*:\s*")' + [regex]::Escape($OurName) + '"', '${1}' + $Prev + '"', 1)
+    }
+    if ($newText -eq $text) { return }
+    if (Test-ConfigJson -Text $newText) {
+        Write-Utf8NoBom $Path $newText
+        Write-Host ("Restored default_agent -> " + $(if ($Prev) { $Prev } else { '(removed)' }))
+    } else {
+        Write-Host "skip default_agent restore: result is not valid JSON"
+    }
+}
+
+function Test-ConfigJson([string]$Text) {
+    try { $null = $Text | ConvertFrom-Json; return $true } catch { return $false }
+}
 
 # OpenCode 在配置目录下按 {skill,skills}/**/SKILL.md 发现技能，所以技能落 <ConfigDir>\skills。
 if ([string]::IsNullOrWhiteSpace($SkillsSource)) {
@@ -305,6 +402,42 @@ if ($Uninstall -or $RestoreMemory) {
     } else {
         Write-Host "No AGENTS.md found, nothing to do"
     }
+    # 1.5 系统层载荷：删 agent/<名>.md（只认带我们标记的），再把 default_agent 还原。
+    #     这一层是真正让模型不拒绝的那层，必须和 AGENTS.md 一起摘干净。
+    $undoState = $null
+    $statePathUndo = Join-Path $managedDir 'install-state.json'
+    if (Test-Path -LiteralPath $statePathUndo) {
+        try { $undoState = Read-Utf8 $statePathUndo | ConvertFrom-Json } catch { }
+    }
+    $agentTarget = $agentFile
+    if ($undoState -and $undoState.agentFile) { $agentTarget = [string]$undoState.agentFile }
+    if (Test-Path -LiteralPath $agentTarget) {
+        $agentText = Read-Utf8 $agentTarget
+        if (Find-InjectBlock $agentText) {
+            Remove-Item -LiteralPath $agentTarget -Force
+            Write-Host ("Removed system-layer kernel -> " + (Split-Path -Leaf $agentTarget))
+            $agentParent = Split-Path -Parent $agentTarget
+            if ((Test-Path -LiteralPath $agentParent) -and
+                ($null -eq (Get-ChildItem -LiteralPath $agentParent -Force -ErrorAction SilentlyContinue | Select-Object -First 1))) {
+                Remove-Item -LiteralPath $agentParent -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Write-Host "Agent file has no injection marker, left untouched"
+        }
+    }
+    $cfgTarget = $configFile
+    if ($undoState -and $undoState.configFile) { $cfgTarget = [string]$undoState.configFile }
+    if ($undoState -and ($undoState.PSObject.Properties.Name -contains 'configTouched') -and $undoState.configTouched) {
+        $prevAgent = $null
+        if ($undoState.PSObject.Properties.Name -contains 'prevDefaultAgent') { $prevAgent = $undoState.prevDefaultAgent }
+        $ourName = $AgentName
+        if ($undoState.PSObject.Properties.Name -contains 'agentName' -and $undoState.agentName) { $ourName = [string]$undoState.agentName }
+        Restore-DefaultAgent -Path $cfgTarget -Prev ([string]$prevAgent) -OurName $ourName
+        # 配置已按状态还原，安装时留的那份整份备份就没用了；留着会让 managed-prompts 变成
+        # 永远清不掉的空壳目录（里面只剩它一个文件）
+        $cfgBak = Join-Path $managedDir ((Split-Path -Leaf $cfgTarget) + '.bak')
+        if (Test-Path -LiteralPath $cfgBak) { Remove-Item -LiteralPath $cfgBak -Force -ErrorAction SilentlyContinue }
+    }
     # 2. 删除同步安装的 skills —— 「装回原始记忆」模式跳过整块：技能要留着，
     #    install-state.json（技能清单就存在里面）也必须一起留。
     if ($RestoreMemory) {
@@ -420,6 +553,28 @@ if ($blk) {
     Write-Host "Appended injected block -> $agentsMd (original content kept)"
 }
 
+# 系统层载荷 + 把 default_agent 指过去（这是让 opencode 不再拒绝的关键层）
+$kernelWritten = Write-AgentKernel
+if ($kernelWritten) {
+    Write-Host ("Installed system-layer kernel -> " + $agentFile)
+} else {
+    Write-Host "Kernel payload missing (opencode-kernel.md), system layer skipped"
+}
+$configTouched = $false
+$prevDefaultAgent = $null
+if (-not $NoDefaultAgent -and $kernelWritten) {
+    if ((Test-Path -LiteralPath $configFile) -and -not (Test-Path -LiteralPath $configBackup)) {
+        Copy-Item -LiteralPath $configFile -Destination $configBackup -Force
+        Write-Host ("Backed up " + (Split-Path -Leaf $configFile) + " -> managed-prompts")
+    }
+    $setRes = Set-DefaultAgent $AgentName
+    if ($setRes.Wrote) {
+        $configTouched = $true
+        $prevDefaultAgent = $setRes.Prev
+        Write-Host ("default_agent -> " + $AgentName)
+    }
+}
+
 # 先读上一次安装写下的技能清单（新版装完要按它清理旧版遗留）
 $prevSkills = @()
 $prevStatePath = Join-Path $managedDir 'install-state.json'
@@ -444,7 +599,22 @@ if ($staleSkills.Count -gt 0) {
     Write-Host ("Pruned stale skills from previous version: " + ($staleSkills -join ", "))
 }
 
+# 重装时这次可能没改配置（default_agent 已经是我们的名字），但上一次改过 ——
+# 「改没改过/原来是什么值」必须沿用它，否则重装一次就把卸载用的还原信息抹掉了（实测踩到）。
+$configTouchedOut = $configTouched
+$prevDefaultOut = $prevDefaultAgent
+if (-not $configTouched -and $prevState -and ($prevState.PSObject.Properties.Name -contains 'configTouched')) {
+    $configTouchedOut = $prevState.configTouched
+    if ($prevState.PSObject.Properties.Name -contains 'prevDefaultAgent') { $prevDefaultOut = $prevState.prevDefaultAgent }
+}
 $state = @{ $skillsManifestKey = $installedSkills }
+if ($kernelWritten) {
+    $state['agentFile'] = $agentFile
+    $state['agentName'] = $AgentName
+    $state['configFile'] = $configFile
+    $state['configTouched'] = $configTouchedOut
+    if ($null -ne $prevDefaultOut) { $state['prevDefaultAgent'] = $prevDefaultOut }
+}
 if ($script:backedUpSkills -and $script:backedUpSkills.Count -gt 0) {
     $state['backedUpSkills'] = $script:backedUpSkills
 }
@@ -452,4 +622,5 @@ $statePath = Join-Path $managedDir 'install-state.json'
 $stateJson = $state | ConvertTo-Json
 Write-Utf8NoBom $statePath $stateJson
 
+Write-Host ("System layer: agent '" + $AgentName + "' (default_agent " + $(if ($configTouched) { 'set' } else { 'unchanged' }) + ")")
 Write-Host "Restart OpenCode to load the configured instructions."

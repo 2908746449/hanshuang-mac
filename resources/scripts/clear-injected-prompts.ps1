@@ -231,6 +231,58 @@ foreach ($m in $marked) {
 }
 
 # -----------------------------------------------------------------------------
+# 2.5 OpenCode 系统层载荷（agent/<名>.md）+ default_agent 还原
+#     agent 文件正文就是 opencode 的 system prompt，是让模型不再拒绝的那一层；
+#     它没有「块外用户内容」的概念（frontmatter 是我们写死的），有标记就整份删。
+# -----------------------------------------------------------------------------
+Write-Host '[2.5/5] OpenCode 系统层（agent 内核 + default_agent）'
+$ocDir = $allHomes['opencode']
+if ((Want 'opencode') -and $ocDir) {
+  $ocState = $null
+  $ocStatePath = Join-Path $ocDir 'managed-prompts/install-state.json'
+  if (Test-Path -LiteralPath $ocStatePath) {
+    try { $ocState = [IO.File]::ReadAllText($ocStatePath) | ConvertFrom-Json } catch { }
+  }
+  $agentPath = Join-Path $ocDir 'agent/hanshuang.md'
+  if ($ocState -and ($ocState.PSObject.Properties.Name -contains 'agentFile') -and $ocState.agentFile) {
+    $agentPath = [string]$ocState.agentFile
+  }
+  if (Test-Path -LiteralPath $agentPath) {
+    $at = [IO.File]::ReadAllText($agentPath)
+    if ($at.Contains('HANSHUANG-INJECT')) {
+      Plan '注入 agent（系统层内核）' $agentPath '整份删除'
+    } else {
+      Keep ('agent 文件非本工具所写，保留：{0}' -f $agentPath)
+    }
+  }
+  # default_agent：能查到安装前原值就写回，查不到且当前指向我们就删掉这个键
+  $cfgPath = $null
+  foreach ($n in @('opencode.json', 'opencode.jsonc')) {
+    $cand = Join-Path $ocDir $n
+    if (Test-Path -LiteralPath $cand) { $cfgPath = $cand; break }
+  }
+  if ($ocState -and ($ocState.PSObject.Properties.Name -contains 'configFile') -and $ocState.configFile) {
+    $cfgPath = [string]$ocState.configFile
+  }
+  if ($cfgPath -and (Test-Path -LiteralPath $cfgPath)) {
+    $ct = [IO.File]::ReadAllText($cfgPath)
+    $m = [regex]::Match($ct, '"default_agent"\s*:\s*"([^"]*)"')
+    $ourName = 'hanshuang'
+    if ($ocState -and ($ocState.PSObject.Properties.Name -contains 'agentName') -and $ocState.agentName) {
+      $ourName = [string]$ocState.agentName
+    }
+    if ($m.Success -and $m.Groups[1].Value -eq $ourName) {
+      if ($ocState -and ($ocState.PSObject.Properties.Name -contains 'configTouched') -and $ocState.configTouched -and
+          ($ocState.PSObject.Properties.Name -contains 'prevDefaultAgent') -and $ocState.prevDefaultAgent) {
+        Plan '配置 default_agent' $cfgPath ('写回原值：{0}' -f $ocState.prevDefaultAgent)
+      } else {
+        Plan '配置 default_agent' $cfgPath ('删除本工具写入的键（值 = {0}）' -f $ourName)
+      }
+    }
+  }
+}
+
+# -----------------------------------------------------------------------------
 # 3. config.toml：只在真有指向提示词的行时才动
 # -----------------------------------------------------------------------------
 Write-Host '[3/5] config.toml 提示词指针'
@@ -660,9 +712,9 @@ foreach ($p in $plan) {
       '删除（备份本身是旧注入）' { Remove-Item -LiteralPath $p.Path -Force -ErrorAction Stop }
       '注入文件（摘除后仅剩垃圾）' {
         # 先试着找一份干净备份还原，找不到才删
-        $home = Split-Path -Parent $p.Path
+        $targetDir = Split-Path -Parent $p.Path
         $base = Split-Path -Leaf $p.Path
-        $clean = @(Get-ChildItem -LiteralPath (Join-Path $home 'managed-prompts') -Filter ($base + '.bak*') -File -ErrorAction SilentlyContinue |
+        $clean = @(Get-ChildItem -LiteralPath (Join-Path $targetDir 'managed-prompts') -Filter ($base + '.bak*') -File -ErrorAction SilentlyContinue |
                    Where-Object { -not (Test-InjectionArtifact $_.FullName) -and $_.Length -gt 0 } |
                    Sort-Object LastWriteTime -Descending | Select-Object -First 1)
         if ($clean) {
@@ -675,15 +727,39 @@ foreach ($p in $plan) {
       '注入文件（无标记但内容是提示词）' {
         $aside = $p.Path + '.inject-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
         Move-Item -LiteralPath $p.Path -Destination $aside -Force
-        $home = Split-Path -Parent $p.Path
+        $targetDir = Split-Path -Parent $p.Path
         $base = Split-Path -Leaf $p.Path
-        $clean = @(Get-ChildItem -LiteralPath (Join-Path $home 'managed-prompts') -Filter ($base + '.bak*') -File -ErrorAction SilentlyContinue |
+        $clean = @(Get-ChildItem -LiteralPath (Join-Path $targetDir 'managed-prompts') -Filter ($base + '.bak*') -File -ErrorAction SilentlyContinue |
                    Where-Object { -not (Test-InjectionArtifact $_.FullName) -and $_.Length -gt 0 } |
                    Sort-Object LastWriteTime -Descending | Select-Object -First 1)
         if ($clean) {
           Copy-Item -LiteralPath $clean[0].FullName -Destination $p.Path -Force
           Remove-Item -LiteralPath $clean[0].FullName -Force
         }
+      }
+      '注入 agent（系统层内核）' {
+        Remove-Item -LiteralPath $p.Path -Force -ErrorAction SilentlyContinue
+        $agentParent = Split-Path -Parent $p.Path
+        if ((Test-Path -LiteralPath $agentParent) -and
+            ($null -eq (Get-ChildItem -LiteralPath $agentParent -Force -ErrorAction SilentlyContinue | Select-Object -First 1))) {
+          Remove-Item -LiteralPath $agentParent -Force -ErrorAction SilentlyContinue
+        }
+      }
+      '配置 default_agent' {
+        $ct = [IO.File]::ReadAllText($p.Path)
+        $prev = ''
+        if ($ocState -and ($ocState.PSObject.Properties.Name -contains 'prevDefaultAgent') -and $ocState.prevDefaultAgent) {
+          $prev = [string]$ocState.prevDefaultAgent
+        }
+        if ($prev) {
+          $new = [regex]::Replace($ct, '("default_agent"\s*:\s*")[^"]*"', '${1}' + $prev + '"', 1)
+        } else {
+          $new = [regex]::Replace($ct, '\s*"default_agent"\s*:\s*"[^"]*"\s*,?', '')
+          $new = $new -replace ',(\s*})', '$1'
+        }
+        if ($new -eq $ct) { break }
+        try { $null = $new | ConvertFrom-Json } catch { throw "编辑后 JSON 不合法，未写入" }
+        [IO.File]::WriteAllText($p.Path, $new, (New-Object System.Text.UTF8Encoding($false)))
       }
       '注入块' {
         foreach ($m in $marked) {
@@ -764,12 +840,14 @@ foreach ($p in $plan) {
     Write-Host ("  FAIL [{0}] {1} :: {2}" -f $p.Kind, $p.Path, $_.Exception.Message) -ForegroundColor Red
   }
 }
-# managed-prompts 清空后若已为空，目录本身也删掉
+# managed-prompts / skills 清空后若已为空，目录本身也删掉（不留空壳让人以为没卸干净）
 foreach ($k in $homes.Keys) {
-  $mp = Join-Path $homes[$k] 'managed-prompts'
-  if ((Test-Path -LiteralPath $mp) -and -not (Get-ChildItem -LiteralPath $mp -Force | Select-Object -First 1)) {
-    Remove-Item -LiteralPath $mp -Force -ErrorAction SilentlyContinue
-    Write-Host ("  OK   [空目录] {0}" -f $mp) -ForegroundColor Green
+  foreach ($sub in @('managed-prompts', 'skills')) {
+    $mp = Join-Path $homes[$k] $sub
+    if ((Test-Path -LiteralPath $mp) -and -not (Get-ChildItem -LiteralPath $mp -Force | Select-Object -First 1)) {
+      Remove-Item -LiteralPath $mp -Force -ErrorAction SilentlyContinue
+      Write-Host ("  OK   [空目录] {0}" -f $mp) -ForegroundColor Green
+    }
   }
 }
 
