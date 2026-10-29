@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:x64": "node scripts/build.mjs --arch=x64",
     "build:arm64": "node scripts/build.mjs --arch=arm64",
     "build:offline": "node scripts/build.mjs --skip-download",
     "test": "HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs",

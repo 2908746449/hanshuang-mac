@@ -26,7 +26,7 @@
 
 ## 验证
 
-macOS 26.5.1，arm64 + x64 各跑一遍：
+macOS 26.5.1，arm64 构建：
 
 ```
 npm run test            # UI→IPC→pwsh 全链路，25/25 通过（新增 opencode 三项）
@@ -44,8 +44,9 @@ npm run test:opencode   # OpenCode 专用端到端，22 项断言全通过
 
 | 文件 | 机型 |
 |---|---|
-| `hanshuang-macos-arm64-2.0.zip` | Apple Silicon |
-| `hanshuang-macos-x64-2.0.zip` | Intel Mac |
+| `hanshuang-macos-arm64-2.0.zip` | Apple Silicon（M1/M2/M3/M4） |
+
+> 只发布 Apple Silicon 构建，Intel 版不再分发。
 
 未做代码签名（ad-hoc），首次打开若被拦：
 

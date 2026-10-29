@@ -27,7 +27,11 @@ const VENDOR = path.join(ROOT, "vendor");
 const DIST = path.join(ROOT, "dist");
 
 const APP_NAME = "寒霜破甲工具";
-const BUNDLE_ID = "com.hanshuang.pojia.desktop";
+// 与界面里显示的版本区分开：Bundle 显示名 / bundle id 都带上 2.0 后缀，
+// 这样能和用户已装的旧版（com.hanshuang.pojia.desktop）同时存在于 /Applications，
+// LaunchServices 不会把两个当成同一个应用。
+const DISPLAY_NAME = "寒霜破甲工具 2.0";
+const BUNDLE_ID = "com.hanshuang.pojia.desktop.v2";
 // 版本号只维护一处：package.json 的 version 写进 Info.plist，避免两边漂移
 const VERSION = JSON.parse(
   fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
@@ -221,8 +225,8 @@ function assemble(appAsar, icns) {
     const re = new RegExp(`(<key>${key}</key>\\s*<string>)[^<]*(</string>)`);
     plist = re.test(plist) ? plist.replace(re, `$1${val}$2`) : plist;
   };
-  set("CFBundleDisplayName", APP_NAME);
-  set("CFBundleName", APP_NAME);
+  set("CFBundleDisplayName", DISPLAY_NAME);
+  set("CFBundleName", DISPLAY_NAME);
   set("CFBundleIdentifier", BUNDLE_ID);
   set("CFBundleExecutable", APP_NAME);
   set("CFBundleIconFile", "electron.icns");
