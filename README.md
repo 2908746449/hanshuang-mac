@@ -1,7 +1,9 @@
 # 寒霜破甲工具 · macOS 版
 
-把原 Windows 便携版（`寒霜破甲工具-便携版-1.2.zip`）完整适配到 macOS 的版本。
+把原 Windows 便携版完整适配到 macOS 的版本。
 Electron 桌面壳 + 随包 PowerShell 运行时 + 已移植的注入脚本，双击即用，**不需要用户另装 PowerShell**。
+
+当前版本 **v2.0**：跟随上游 v2.0 同步，新增 **OpenCode** 破甲目标（共 9 个目标）。
 
 ## 支持的目标
 
@@ -10,11 +12,25 @@ Electron 桌面壳 + 随包 PowerShell 运行时 + 已移植的注入脚本，�
 | Codex | `~/.codex/config.toml` 的 `model_instructions_file` + `~/.codex/AGENTS.md` + `~/.codex/skills` | ✅ |
 | ZCode | `~/.zcode/AGENTS.md` + 记忆文件 + `ZCode.app/Contents/Resources/glm/zcode.cjs` 系统提示词 | ✅ |
 | Cursor | `~/.cursor/rules/寒霜注入.mdc`（全局 User Rules）+ 项目级 `.cursor/rules` | ✅ |
+| **OpenCode** | `~/.config/opencode/AGENTS.md`（`HANSHUANG-INJECT` 标记块）+ `~/.config/opencode/skills` | ✅ |
 | Claude | `~/.claude/CLAUDE.md` + `~/.claude/skills` | ✅ |
 | WorkBuddy 国际版 | `~/.workbuddy-ai/memory/*_memory.md` + `MEMORY.md` + `skills` | ✅ |
 | WorkBuddy 国内版 | `~/.workbuddy/…`（同一脚本，靠 `-ConfigDir` 区分） | ✅ |
 | DeepSeek Harness (DSH) | `~/.dsh/AGENTS.md` + `~/.dsh/skills` | ✅ |
 | 豆包 (Doubao) | 走 CDP 驱动客户端改**云端**全局记忆 | ⚠️ 见下 |
+
+### v2.0 更新
+
+- **新增 OpenCode 目标**：注入 `~/.config/opencode/AGENTS.md`（带 `HANSHUANG-INJECT` 标记块，
+  只换块内内容，块外你自己的内容一字节不动），技能同步到 `~/.config/opencode/skills`
+  （OpenCode 按 `{skill,skills}/**/SKILL.md` 发现技能）。配置根按 `-ConfigDir` >
+  `XDG_CONFIG_HOME/opencode` > `~/.config/opencode` 解析，与 OpenCode 自身一致。
+- **卸载更干净**：`-Uninstall` 时补传 `-SkillsSource codex-skills-v4`。脚本靠
+  「上次安装清单 ∩ 随包技能库」过滤，以前卸载路径拿不到库名会退回旧库 `codex-skills`，
+  少了 `l-*` 四个技能，它们会永远残留在 `skills/` 里（实测踩到）。
+- **不留空壳目录**：卸载后 `managed-prompts` / `skills` 若已空则一并删除。
+- 清理脚本 `clear-injected-prompts.ps1` 增加 opencode 分支（`-Targets opencode`）。
+- 版本号只维护一处：`package.json` 的 `version` 直接写进 `Info.plist`。
 
 ## 下载
 
@@ -23,8 +39,8 @@ Electron 桌面壳 + 随包 PowerShell 运行时 + 已移植的注入脚本，�
 
 | 文件 | 适用机型 |
 |---|---|
-| `hanshuang-macos-arm64-1.2.zip` | Apple Silicon（M1/M2/M3/M4） |
-| `hanshuang-macos-x64-1.2.zip` | Intel Mac |
+| `hanshuang-macos-arm64-2.0.zip` | Apple Silicon（M1/M2/M3/M4） |
+| `hanshuang-macos-x64-2.0.zip` | Intel Mac |
 
 ## 构建
 
@@ -67,11 +83,16 @@ app/                       Electron 应用（打进 app.asar）
   dist/                      前端构建产物（React SPA）
 resources/                 随包资源（打进 Contents/Resources/）
   platform.ps1               ★ Windows/macOS 差异适配层
-  install*.ps1               7 个目标的注入脚本（已移植）
+  install*.ps1               9 个目标的注入脚本（已移植）
+  install-opencode.ps1       OpenCode（上游 v2.0 新增，由 tools/port-opencode-to-mac.py 生成）
   scripts/clear-injected-prompts.ps1
   codex-skills*/             技能库
   *.md                       各版本提示词
 scripts/build.mjs          构建脚本
+tools/port-*.py            Windows 脚本 → macOS 的定点变换器（带断言，改上游后重跑即可）
+tools/patch-opencode-ui.py 给已构建的前端 bundle 补 OpenCode 卡片（幂等）
+tests/ipc-test.mjs         UI→IPC→pwsh 全链路测试
+tests/opencode-test.sh     OpenCode 安装/装回/卸载/清理端到端测试
 assets/icon.png|icns       图标
 ```
 
@@ -111,17 +132,17 @@ assets/icon.png|icns       图标
 
 在 macOS 26.5.1 上跑通（`tests/ipc-test.mjs`，把 electron 换成桩模块后 require
 真实 `app.asar` 里的 `main.cjs`，抓出它注册的 IPC handler 按界面路径逐个跑）。
-**arm64 与 x64 两个构建各自 22/22 通过**：
+**arm64 与 x64 两个构建各自 25/25 通过**：
 
 ```
 $ HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
 # 指定架构：HS_TEST_ARCH=x64 HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
 ✅ IPC tool:state
-✅ tool:install / tool:uninstall / tool:restoreMemory   codex zcode cursor claude workbuddy-cn dsh  各 3 项
+✅ tool:install / tool:uninstall / tool:restoreMemory   codex zcode cursor opencode claude workbuddy-cn dsh  各 3 项
 ✅ 兜底清扫已清掉 MEMORY.md 注入
 ✅ install-doubao.ps1 -Status
 ✅ IPC tool:skills:list
-==== 结果：22/22 通过 ====
+==== 结果：25/25 通过 ====
 ```
 
 > 必须在隔离的 `HOME` 下跑。各目标的注入点全在 `$HOME` 里，而卸载的兜底清扫是扫
@@ -134,6 +155,7 @@ $ HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
 | Codex | ✅ `config.toml` 指针 + `AGENTS.md` 标记块 + 63 个技能 | ✅ `config.toml` 与安装前**逐字节一致**，`managed-prompts` 整目录回收 |
 | ZCode | ✅ 命中 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs` 并改写 `u9o`/`s9o` | ✅ 系统提示词从 `~/.zcode/zcode.cjs.backup-*` 还原 |
 | Cursor | ✅ 4 处规则（`~/.cursor/rules`、`~/Library/Application Support/Cursor/…`、项目级、旧版 `.cursorrules`） | ✅ 全部摘除 |
+| **OpenCode** | ✅ `~/.config/opencode/AGENTS.md` 标记块 + 63 个技能 | ✅ `AGENTS.md` 与安装前**逐字节一致**，`skills/`、`managed-prompts/` 不留空壳（`tests/opencode-test.sh` 22 项断言全通过） |
 | Claude | ✅ `CLAUDE.md` + 63 个技能 | ✅ 还原 |
 | WorkBuddy | ✅ 云记忆档案 `memoryBlock` + `MEMORY.md` + `generateMemoryEnabled` + 63 技能 | ✅ 档案 `memoryBlock`/`version`、`MEMORY.md`、`app-config.json` 全部按备份还原 |
 | DSH | ✅ `AGENTS.md` + 71 个技能 + 懒人包文件 | ✅ 全部摘除 |
@@ -154,7 +176,7 @@ $ HOME=/tmp/hs-ipc-home node tests/ipc-test.mjs
 ```
 
 所以 CDP 通道建不起来，这个目标在 macOS 上暂不可用。脚本在这种情况下会明确打印原因，
-不会静默失败。**其余 6 个目标不受影响。**
+不会静默失败。**其余 8 个目标不受影响。**
 若后续豆包放开调试端口（或提供其他注入入口），把 CDP 打通即可恢复。
 
 ## 卸载

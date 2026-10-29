@@ -143,6 +143,7 @@ const TARGETS = [
   ["codex", "寒霜v4.md"],
   ["zcode", "寒霜v4.md"],
   ["cursor", "寒霜v4.md"],
+  ["opencode", "寒霜v4.md"],
   ["claude", "寒霜v4-claude.md"],
   ["workbuddy-cn", "寒霜v4.md"],
   ["dsh", "寒霜v4.md"],

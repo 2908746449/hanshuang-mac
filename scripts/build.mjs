@@ -28,7 +28,10 @@ const DIST = path.join(ROOT, "dist");
 
 const APP_NAME = "寒霜破甲工具";
 const BUNDLE_ID = "com.hanshuang.pojia.desktop";
-const VERSION = "4.4.0";
+// 版本号只维护一处：package.json 的 version 写进 Info.plist，避免两边漂移
+const VERSION = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+).version;
 const ELECTRON_VERSION = "33.4.11";
 const PWSH_VERSION = "7.6.6";
 

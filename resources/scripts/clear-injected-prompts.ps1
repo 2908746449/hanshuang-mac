@@ -1,7 +1,7 @@
 # =============================================================================
 #  寒霜破甲工具 · 清除全部注入提示词（零提示词）
 #
-#  六个目标（codex / zcode / cursor / claude / workbuddy / dsh）各有一套安装脚本、
+#  七个目标（codex / zcode / cursor / opencode / claude / workbuddy / dsh）各有一套安装脚本、
 #  各有自己的注入点。这个脚本把它们全部还原到「没有注入过任何提示词」的状态。
 #
 #  安全规则（硬约束，改脚本时不要放宽）：
@@ -149,6 +149,9 @@ $codexHome = Resolve-CodexHome
 $allHomes = [ordered]@{
   codex  = $codexHome
   zcode  = (Join-Path $H '.zcode')
+  # OpenCode 的全局配置目录（与 install-opencode.ps1 的解析保持一致：
+  # -ConfigDir > XDG_CONFIG_HOME/opencode > ~/.config/opencode）
+  opencode = $(if ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME 'opencode' } else { Join-Path $H '.config/opencode' })
   claude = (Join-Path $H '.claude')
   dsh    = (Join-Path $H '.dsh')
 }
@@ -195,7 +198,10 @@ $markedAll = @(
   @{ T = 'codex'; Path = (Join-Path $codexHome 'AGENTS.md');  Begin = '<!-- 寒霜破甲注入开始'; End = '<!-- 寒霜破甲注入结束 -->' },
   @{ T = 'dsh';   Path = (Join-Path $H '.dsh/AGENTS.md');     Begin = '<!-- 寒霜破甲注入开始'; End = '<!-- 寒霜破甲注入结束 -->' },
   @{ T = 'zcode'; Path = (Join-Path $H '.zcode/AGENTS.md');   Begin = '<!-- 寒霜破甲注入开始'; End = '<!-- 寒霜破甲注入结束 -->' },
-  @{ T = 'claude';Path = (Join-Path $H '.claude/CLAUDE.md');  Begin = 'HANSHUANG-INJECT:BEGIN'; End = 'HANSHUANG-INJECT:END' }
+  @{ T = 'claude';Path = (Join-Path $H '.claude/CLAUDE.md');  Begin = 'HANSHUANG-INJECT:BEGIN'; End = 'HANSHUANG-INJECT:END' },
+  # OpenCode 与 Claude 用同一套 HANSHUANG-INJECT 标记（install-opencode.ps1 写入的
+  # 块首是 `<!-- HANSHUANG-INJECT:BEGIN prompt=<文件名> -->`，按子串匹配即可）
+  @{ T = 'opencode'; Path = (Join-Path $allHomes['opencode'] 'AGENTS.md'); Begin = 'HANSHUANG-INJECT:BEGIN'; End = 'HANSHUANG-INJECT:END' }
 )
 $marked = @($markedAll | Where-Object { Want $_.T })
 foreach ($m in $marked) {

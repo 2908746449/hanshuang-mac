@@ -43,6 +43,7 @@ const INSTALL_SCRIPTS = [
   "install.ps1",
   "install-zcode.ps1",
   "install-cursor.ps1",
+  "install-opencode.ps1",
   "install-claude.ps1",
   "install-workbuddy.ps1",
   "install-dsh.ps1",
@@ -127,6 +128,9 @@ const SCRIPTS = {
   codex: "install.ps1",
   zcode: "install-zcode.ps1",
   cursor: "install-cursor.ps1",
+  // OpenCode：注入 ~/.config/opencode/AGENTS.md + 技能 ~/.config/opencode/skills
+  // （可用 XDG_CONFIG_HOME 改配置根；脚本自己解析，这里不写死）
+  opencode: "install-opencode.ps1",
   claude: "install-claude.ps1",
   workbuddy: "install-workbuddy.ps1",
   // WorkBuddy 国内版：同一个脚本，靠 -ConfigDir 指到 ~/.workbuddy 区分
@@ -136,6 +140,17 @@ const SCRIPTS = {
 };
 
 const TARGET_IDS = Object.keys(SCRIPTS);
+
+/** 会往目标里同步技能库的目标（cursor / doubao 只注入提示词，没有 -SkillsSource 参数）。 */
+const SKILLS_INSTALL_TARGETS = new Set([
+  "codex",
+  "zcode",
+  "opencode",
+  "claude",
+  "workbuddy",
+  "workbuddy-cn",
+  "dsh",
+]);
 
 /**
    Codex V5 双提示词（gpt-6-astra-v1）：界面上是一个版本，点安装时二选一 ——
@@ -251,6 +266,17 @@ function installArgs(targetId, promptFile) {
         "-SkillsSource", "codex-skills-v4",
         "-KnownPrompts", knownPromptPaths().join(";"),
       ];
+    // OpenCode：注入 ~/.config/opencode/AGENTS.md（带 HANSHUANG-INJECT 标记块），
+    // 技能同步到 ~/.config/opencode/skills —— opencode 按 {skill,skills}/**/SKILL.md 发现。
+    // -KnownPrompts 与 Claude 同理：AGENTS.md 正文本来就是某份随包提示词时整份改写，
+    // 避免被当成"用户自己的内容"一路往后追加。
+    case "opencode":
+      return [
+        "-File", file,
+        "-SourcePrompt", prompt,
+        "-SkillsSource", "codex-skills-v4",
+        "-KnownPrompts", knownPromptPaths().join(";"),
+      ];
     case "workbuddy":
       return ["-File", file, "-SourcePrompt", prompt, "-SkillsSource", "codex-skills-v4"];
     case "workbuddy-cn":
@@ -279,6 +305,9 @@ function uninstallArgs(targetId) {
   const args = ["-File", p(SCRIPTS[targetId]), "-Uninstall"];
   // 国内版必须显式指定数据目录，否则卸载会走自动探测跑到国际版上去
   if (targetId === "workbuddy-cn") args.push("-ConfigDir", path.join(homeDir(), ".workbuddy"));
+  // 卸载也要带上与安装时一致的技能库名：脚本靠「上次装的清单 ∩ 随包技能库」过滤，
+  // 卸载路径拿不到库名时只能退回 codex-skills（旧库少了 l-* 四个技能），那四个就清不掉。
+  if (SKILLS_INSTALL_TARGETS.has(targetId)) args.push("-SkillsSource", "codex-skills-v4");
   return args;
 }
 
@@ -1176,13 +1205,16 @@ async function captureAll(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const nav = (i) => `document.querySelectorAll(".settings-nav-scroll .settings-nav-item")[${i}].click()`;
   // 索引跟随 data/targets.ts 的目标顺序；工具组固定排在目标组之后
+  // 目标顺序（v2.0 起）：codex 0 / zcode 1 / cursor 2 / opencode 3 / claude 4 /
+  //                    workbuddy 5 / workbuddy-cn 6 / dsh 7 / doubao 8
   const shots = [
     ["codex", null],
     ["zcode", nav(1)],
-    ["workbuddy", nav(4)],
-    ["dsh", nav(5)],
-    ["skills", nav(6)],
-    ["tutorial", nav(7)],
+    ["opencode", nav(3)],
+    ["workbuddy", nav(5)],
+    ["dsh", nav(7)],
+    ["skills", nav(9)],
+    ["tutorial", nav(10)],
     ["profile", 'document.querySelector(".app-nav-foot .settings-nav-item").click()'],
   ];
   // 截图前确保窗口真正可见并聚焦，否则 Chromium 会冻结 CSS 动画时间线
@@ -1246,7 +1278,7 @@ async function captureAll(dir) {
   // 开发用：HS_INSTALLTEST=<targetId> 时在界面上真点一次「安装」，把状态与日志抓回来
   if (process.env.HS_INSTALLTEST) {
     const target = process.env.HS_INSTALLTEST;
-    const navIdx = { codex: 0, zcode: 1, cursor: 2, claude: 3, workbuddy: 4, dsh: 5 }[target];
+    const navIdx = { codex: 0, zcode: 1, cursor: 2, opencode: 3, claude: 4, workbuddy: 5, dsh: 7 }[target];
     if (navIdx !== undefined) {
       await win.webContents.executeJavaScript(
         `document.querySelectorAll(".settings-nav-scroll .settings-nav-item")[${navIdx}].click(), true`,
